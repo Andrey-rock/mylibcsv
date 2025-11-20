@@ -1,8 +1,6 @@
 package org.example;
 
-import org.example.model.Person;
-import org.example.model.Student;
-
+import java.lang.reflect.Field;
 import java.io.BufferedWriter;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -33,19 +31,19 @@ import java.util.stream.Collectors;
 public class CsvWriter implements Writable {
 
     /**
-     * Сохраняет список объектов в CSV файл.
-     * Автоматически определяет тип объектов (Person или Student) и применяет соответствующий формат.
+     * Сохраняет список объектов в CSV файл с использованием рефлексии.
+     * Автоматически определяет поля объектов и создает соответствующий CSV формат.
      * Null элементы в списке игнорируются.
      *
-     * @param data список объектов для сохранения (Person или Student)
+     * @param data список объектов для сохранения
      * @param fileName имя файла для сохранения данных
-     * @throws IllegalArgumentException если передан неподдерживаемый тип данных
+     * @throws IllegalArgumentException если произошла ошибка при работе с рефлексией
      *
-     * @apiNote Метод автоматически создает заголовки CSV файла и экранирует специальные символы.
+     * @apiNote Метод автоматически создает заголовки CSV файла на основе имен полей класса
+     *          и экранирует специальные символы. Для List полей используется запятая как разделитель.
      *          В случае ошибок записи выводит сообщение в стандартный поток ошибок.
      */
     @Override
-    @SuppressWarnings("unchecked")
     public void writeToFile(List<?> data, String fileName) {
         if (data == null || data.isEmpty()) {
             System.out.println("No data to write");
@@ -63,17 +61,18 @@ public class CsvWriter implements Writable {
                 return;
             }
 
-            // Определяем тип объектов по первому ненулевому элементу и записываем заголовок
+            // Определяем тип объектов по первому ненулевому элементу
             Object firstElement = filteredData.get(0);
-            if (firstElement instanceof Person) {
-                writePersonHeader(writer);
-                writePersonData(writer, (List<Person>) filteredData);
-            } else if (firstElement instanceof Student) {
-                writeStudentHeader(writer);
-                writeStudentData(writer, (List<Student>) filteredData);
-            } else {
-                throw new IllegalArgumentException("Unsupported data type: " + firstElement.getClass().getSimpleName());
-            }
+            Class<?> clazz = firstElement.getClass();
+
+            // Получаем все поля класса (включая приватные)
+            Field[] fields = clazz.getDeclaredFields();
+
+            // Записываем заголовок
+            writeHeader(writer, fields);
+
+            // Записываем данные
+            writeData(writer, filteredData, fields);
 
             System.out.println("Data successfully written to " + fileName);
 
@@ -85,74 +84,103 @@ public class CsvWriter implements Writable {
     }
 
     /**
-     * Записывает заголовок CSV файла для объектов Person.
-     * Использует запятую как разделитель столбцов.
-     *
-     * @param writer BufferedWriter для записи данных
-     * @throws IOException если произошла ошибка ввода-вывода
-     */
-    private void writePersonHeader(BufferedWriter writer) throws IOException {
-        writer.write("FirstName,LastName,DayOfBirth,MonthOfBirth,YearOfBirth");
-        writer.newLine();
-    }
-
-    /**
-     * Записывает данные объектов Person в CSV формате.
-     * Каждая строка представляет одного человека с разделителем-запятой.
-     *
-     * @param writer BufferedWriter для записи данных
-     * @param persons список объектов Person для сохранения
-     * @throws IOException если произошла ошибка ввода-вывода
-     */
-    private void writePersonData(BufferedWriter writer, List<Person> persons) throws IOException {
-        for (Person person : persons) {
-            String line = String.format("%s,%s,%d,%s,%d",
-                    escapeCsvField(person.getFirstName(), ","),
-                    escapeCsvField(person.getLastName(), ","),
-                    person.getDayOfBirth(),
-                    person.getMonthOfBirth() != null ? person.getMonthOfBirth().name() : "",
-                    person.getYearOfBirth());
-            writer.write(line);
-            writer.newLine();
-        }
-    }
-
-    /**
-     * Записывает заголовок CSV файла для объектов Student.
+     * Записывает заголовок CSV файла на основе имен полей класса.
      * Использует точку с запятой как разделитель столбцов.
      *
      * @param writer BufferedWriter для записи данных
+     * @param fields массив полей класса
      * @throws IOException если произошла ошибка ввода-вывода
      */
-    private void writeStudentHeader(BufferedWriter writer) throws IOException {
-        writer.write("Name;Scores");
+    private void writeHeader(BufferedWriter writer, Field[] fields) throws IOException {
+        String header = java.util.Arrays.stream(fields)
+                .map(field -> {
+                    // Преобразуем camelCase в более читаемый формат (опционально)
+                    String fieldName = field.getName();
+                    return escapeCsvField(formatFieldName(fieldName));
+                })
+                .collect(Collectors.joining(";"));
+
+        writer.write(header);
         writer.newLine();
     }
 
     /**
-     * Записывает данные объектов Student в CSV формате.
-     * Использует точку с запятой как разделитель столбцов и запятую для разделения оценок.
+     * Записывает данные объектов в CSV формате с использованием рефлексии.
      *
      * @param writer BufferedWriter для записи данных
-     * @param students список объектов Student для сохранения
+     * @param data список объектов для сохранения
+     * @param fields массив полей класса
      * @throws IOException если произошла ошибка ввода-вывода
      */
-    private void writeStudentData(BufferedWriter writer, List<Student> students) throws IOException {
-        for (Student student : students) {
-            // Объединяем оценки в одну строку через запятую
-            String scores = "";
-            if (student.getScore() != null) {
-                scores = student.getScore().stream()
-                        .filter(Objects::nonNull)
-                        .collect(Collectors.joining(","));
-            }
+    private void writeData(BufferedWriter writer, List<?> data, Field[] fields)
+            throws IOException {
 
-            String line = String.format("%s;%s",
-                    escapeCsvField(student.getName(), ";"),
-                    escapeCsvField(scores, ";"));
+        for (Object obj : data) {
+            if (obj == null) continue;
+
+            String line = java.util.Arrays.stream(fields)
+                    .map(field -> {
+                        try {
+                            // Делаем поле доступным (для приватных полей)
+                            field.setAccessible(true);
+                            Object value = field.get(obj);
+                            return convertFieldToString(value);
+                        } catch (IllegalAccessException e) {
+                            System.err.println("Error accessing field " + field.getName() + ": " + e.getMessage());
+                            return "";
+                        }
+                    })
+                    .map(this::escapeCsvField)
+                    .collect(Collectors.joining(";"));
+
             writer.write(line);
             writer.newLine();
         }
+    }
+
+    /**
+     * Конвертирует значение поля в строковое представление для CSV.
+     * Особые случаи обработки:
+     * - Enum: сохраняется как имя константы
+     * - List: элементы объединяются через запятую
+     * - null: возвращается пустая строка
+     *
+     * @param value значение поля
+     * @return строковое представление значения
+     */
+    private String convertFieldToString(Object value) {
+        if (value == null) {
+            return "";
+        }
+
+        // Обработка Enum
+        if (value instanceof Enum) {
+            return ((Enum<?>) value).name();
+        }
+
+        // Обработка List (особенно для поля score в Student)
+        if (value instanceof List<?> list) {
+            return list.stream()
+                    .filter(Objects::nonNull)
+                    .map(Object::toString)
+                    .collect(Collectors.joining(","));
+        }
+
+        // Стандартное преобразование для других типов
+        return value.toString();
+    }
+
+    /**
+     * Форматирует имя поля для лучшей читаемости в заголовке CSV.
+     * Преобразует camelCase в "Camel Case".
+     *
+     * @param fieldName исходное имя поля
+     * @return отформатированное имя поля
+     */
+    private String formatFieldName(String fieldName) {
+        // Простая реализация - можно улучшить при необходимости
+        return fieldName.substring(0, 1).toUpperCase() +
+                fieldName.substring(1).replaceAll("([A-Z])", " $1");
     }
 
     /**
@@ -161,15 +189,14 @@ public class CsvWriter implements Writable {
      * оно заключается в двойные кавычки, а существующие кавычки удваиваются.
      *
      * @param field поле для экранирования
-     * @param delimiter разделитель, используемый в CSV файле
      * @return экранированное поле, готовое для записи в CSV
      */
-    private String escapeCsvField(String field, String delimiter) {
+    private String escapeCsvField(String field) {
         if (field == null) {
             return "";
         }
         // Если поле содержит разделитель, кавычки или переносы строк, заключаем в кавычки
-        if (field.contains(delimiter) || field.contains("\"") || field.contains("\n") || field.contains("\r")) {
+        if (field.contains(";") || field.contains("\"") || field.contains("\n") || field.contains("\r")) {
             // Экранируем кавычки путем их удвоения
             field = field.replace("\"", "\"\"");
             return "\"" + field + "\"";
