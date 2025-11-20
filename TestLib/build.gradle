@@ -1,0 +1,15 @@
+plugins {
+    id 'java'
+}
+
+group = 'org.example'
+version = '1.0.0'
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+}
+
+dependencies {
+    implementation 'org.example:mylibcsv:1.0.0'
+}
