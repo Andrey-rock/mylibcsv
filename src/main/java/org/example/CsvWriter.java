@@ -9,10 +9,7 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * Реализация интерфейса Writable для сохранения объектов Person и Student в CSV формате.
- * Поддерживает различные разделители для разных типов объектов:
- * - Для Person используется запятая как разделитель столбцов
- * - Для Student используется точка с запятой как разделитель столбцов, а оценки разделяются запятыми
+ * Реализация интерфейса Writable для сохранения любых объектов в CSV формате с помощью рефлексии.
  *
  * <p>Пример использования:
  * <pre>
@@ -94,7 +91,7 @@ public class CsvWriter implements Writable {
     private void writeHeader(BufferedWriter writer, Field[] fields) throws IOException {
         String header = java.util.Arrays.stream(fields)
                 .map(field -> {
-                    // Преобразуем camelCase в более читаемый формат (опционально)
+                    // Преобразуем camelCase в более читаемый формат
                     String fieldName = field.getName();
                     return escapeCsvField(formatFieldName(fieldName));
                 })
@@ -121,7 +118,6 @@ public class CsvWriter implements Writable {
             String line = java.util.Arrays.stream(fields)
                     .map(field -> {
                         try {
-                            // Делаем поле доступным (для приватных полей)
                             field.setAccessible(true);
                             Object value = field.get(obj);
                             return convertFieldToString(value);
@@ -178,7 +174,6 @@ public class CsvWriter implements Writable {
      * @return отформатированное имя поля
      */
     private String formatFieldName(String fieldName) {
-        // Простая реализация - можно улучшить при необходимости
         return fieldName.substring(0, 1).toUpperCase() +
                 fieldName.substring(1).replaceAll("([A-Z])", " $1");
     }
