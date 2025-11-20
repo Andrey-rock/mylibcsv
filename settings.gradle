@@ -1,2 +1,3 @@
 rootProject.name = 'mylibcsv'
+include 'TestLib'
 
